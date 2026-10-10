@@ -3,7 +3,7 @@ import { contact } from "../data/content";
 import SectionHeading from "../components/SectionHeading";
 import GlassCard from "../components/GlassCard";
 import PageTransition from "../components/PageTransition";
-import { Mail, Send, Check, ExternalLink } from "lucide-react";
+import { Mail, Send, Check, ExternalLink, Loader2, AlertCircle } from "lucide-react";
 
 const socialIcons = {
   linkedin: (
@@ -22,27 +22,61 @@ const socialIcons = {
 
 export default function Contact() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState("idle"); // 'idle' | 'sending' | 'success' | 'error'
+  const [errors, setErrors] = useState({});
 
-  const handleSubmit = (e) => {
+  const validate = () => {
+    const errs = {};
+    if (!form.name.trim()) {
+      errs.name = "Name is required.";
+    }
+    if (!form.email.trim()) {
+      errs.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errs.email = "Please enter a valid email address.";
+    }
+    if (!form.message.trim()) {
+      errs.message = "Message is required.";
+    } else if (form.message.trim().length < 10) {
+      errs.message = "Message must be at least 10 characters.";
+    }
+    return errs;
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.email.trim() || !form.message.trim()) return;
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
 
-    setSubmitted(true);
+    setErrors({});
+    setStatus("sending");
 
-    const subject = encodeURIComponent(`Portfolio message from ${form.name.trim()}`);
-    const body = encodeURIComponent(
-      `Name: ${form.name.trim()}\nEmail: ${form.email.trim()}\n\nMessage:\n${form.message.trim()}`
-    );
-    const mailtoUrl = `mailto:${contact.email}?subject=${subject}&body=${body}`;
+    try {
+      const response = await fetch("/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          "form-name": "contact",
+          name: form.name.trim(),
+          email: form.email.trim(),
+          message: form.message.trim(),
+          "bot-field": "",
+        }).toString(),
+      });
 
-    // Open mail client
-    window.location.href = mailtoUrl;
-
-    setTimeout(() => {
-      setSubmitted(false);
-      setForm({ name: "", email: "", message: "" });
-    }, 4000);
+      if (response.ok) {
+        setStatus("success");
+        setForm({ name: "", email: "", message: "" });
+      } else {
+        setStatus("error");
+      }
+    } catch (err) {
+      console.warn("Netlify Forms submission:", err);
+      setStatus("error");
+    }
   };
 
   return (
@@ -112,19 +146,47 @@ export default function Contact() {
                 Send a Message
               </h2>
 
-              <form onSubmit={handleSubmit} className="flex flex-col">
+              <form
+                name="contact"
+                method="POST"
+                data-netlify="true"
+                netlify-honeypot="bot-field"
+                onSubmit={handleSubmit}
+                noValidate
+                className="flex flex-col"
+              >
+                {/* Netlify hidden inputs */}
+                <input type="hidden" name="form-name" value="contact" />
+                <input
+                  type="text"
+                  name="bot-field"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  className="hidden opacity-0 absolute -z-10 h-0 w-0 pointer-events-none"
+                  style={{ display: "none" }}
+                  aria-hidden="true"
+                />
+
                 <div className="mb-5">
                   <label className="block font-mono text-xs text-[#8B8B9E] uppercase mb-2">
                     Your Name
                   </label>
                   <input
                     type="text"
-                    required
+                    name="name"
                     placeholder="e.g. Alex"
-                    className="form-input"
+                    className={`form-input ${errors.name ? "!border-amber/80" : ""}`}
                     value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    onChange={(e) => {
+                      setForm({ ...form, name: e.target.value });
+                      if (errors.name) setErrors({ ...errors, name: undefined });
+                    }}
                   />
+                  {errors.name && (
+                    <p className="mt-1.5 text-xs text-amber font-mono">
+                      {errors.name}
+                    </p>
+                  )}
                 </div>
 
                 <div className="mb-5">
@@ -133,12 +195,20 @@ export default function Contact() {
                   </label>
                   <input
                     type="email"
-                    required
+                    name="email"
                     placeholder="e.g. alex@company.com"
-                    className="form-input"
+                    className={`form-input ${errors.email ? "!border-amber/80" : ""}`}
                     value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    onChange={(e) => {
+                      setForm({ ...form, email: e.target.value });
+                      if (errors.email) setErrors({ ...errors, email: undefined });
+                    }}
                   />
+                  {errors.email && (
+                    <p className="mt-1.5 text-xs text-amber font-mono">
+                      {errors.email}
+                    </p>
+                  )}
                 </div>
 
                 <div className="mb-5">
@@ -147,25 +217,31 @@ export default function Contact() {
                   </label>
                   <textarea
                     rows={4}
-                    required
+                    name="message"
                     placeholder="Tell me about your product, role, or timeline..."
-                    className="form-input resize-none"
+                    className={`form-input resize-none ${errors.message ? "!border-amber/80" : ""}`}
                     value={form.message}
-                    onChange={(e) =>
-                      setForm({ ...form, message: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setForm({ ...form, message: e.target.value });
+                      if (errors.message) setErrors({ ...errors, message: undefined });
+                    }}
                   />
+                  {errors.message && (
+                    <p className="mt-1.5 text-xs text-amber font-mono">
+                      {errors.message}
+                    </p>
+                  )}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={submitted}
-                  className="btn-primary h-12 px-6 rounded-xl justify-center w-full text-sm mt-2"
+                  disabled={status === "sending"}
+                  className="btn-primary h-12 px-6 rounded-xl justify-center w-full text-sm mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {submitted ? (
+                  {status === "sending" ? (
                     <>
-                      <span>Opening your email app...</span>
-                      <Check className="w-4 h-4" />
+                      <Loader2 className="w-4 h-4 animate-spin text-current" />
+                      <span>Sending...</span>
                     </>
                   ) : (
                     <>
@@ -174,6 +250,40 @@ export default function Contact() {
                     </>
                   )}
                 </button>
+
+                {/* Inline Accessible Status Messages */}
+                {status === "success" && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="p-4 rounded-xl bg-amber/10 border border-amber/35 text-amber text-sm font-medium flex items-center gap-3 mt-4"
+                  >
+                    <Check className="w-5 h-5 flex-shrink-0 text-amber" />
+                    <span>
+                      Thanks! Your message has been sent. I'll get back to you soon.
+                    </span>
+                  </div>
+                )}
+
+                {status === "error" && (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    className="p-4 rounded-xl bg-amber/10 border border-amber/35 text-amber-light text-sm font-medium flex items-center gap-3 mt-4"
+                  >
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber" />
+                    <span>
+                      Couldn't send your message. Please email me directly at{" "}
+                      <a
+                        href={`mailto:${contact.email}`}
+                        className="text-amber underline hover:opacity-90 font-semibold"
+                      >
+                        {contact.email}
+                      </a>
+                      .
+                    </span>
+                  </div>
+                )}
               </form>
             </GlassCard>
           </div>
